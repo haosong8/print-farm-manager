@@ -1,0 +1,20 @@
+name: printfarm_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - flask=2.2.3
+  - flask-restful=0.3.9
+  - flask-cors=3.0.10
+  - flask-sqlalchemy=3.0.2
+  - psycopg2-binary=2.9.6
+  - flask-migrate=4.0.4
+  - python-dotenv=1.0.0
+  - pip
+  - pip:
+      - requests>=2.31.0
+      - jsonrpcclient>=4.0.0
+      - urllib3>=2.2.2
+      - gunicorn==20.1.0
+      - werkzeug==2.2.2
