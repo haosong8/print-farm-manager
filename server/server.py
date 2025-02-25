@@ -1,13 +1,10 @@
 from flask import Flask
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
 from config import parse_arguments, load_config, Config
-
-# Create a shared SQLAlchemy instance.
-db = SQLAlchemy()
+from models import db  # Import the shared db instance from models/__init__.py
+from extensions import socketio
 
 def create_app(config_file):
-    """Factory function to create and configure the Flask app."""
     app = Flask(__name__)
     CORS(app)
     
@@ -35,13 +32,15 @@ def create_app(config_file):
     # Initialize SQLAlchemy with the app.
     db.init_app(app)
     
-    # Register blueprints or endpoints (if any)
-    # For example, if you have an api/ folder with blueprint registration:
+    # Register blueprints (if any)
     try:
         from api import register_blueprints
         register_blueprints(app)
     except ImportError:
-        pass  # No blueprints defined yet.
+        pass
+
+    socketio.init_app(app)
+    print("SocketIO instance:", socketio)
     
     return app
 
@@ -49,18 +48,26 @@ if __name__ == '__main__':
     args = parse_arguments()
     app = create_app(args.config)
     
-    # If the -i flag is provided with "base", initialize the database schema and exit.
     if args.init.lower() == "base":
         with app.app_context():
-            print("Registered tables:", db.metadata.tables.keys())
+            print("Registered tables:", list(db.metadata.tables.keys()))
             db.create_all()
-            print("Base database initialized.")
+            print("Database tables and relationships created successfully.")
         import sys
         sys.exit(0)
     
-    # Otherwise, run the Flask server.
+    from flask_socketio import SocketIO
+    socketio = SocketIO(app, cors_allowed_origins="*")
+    try:
+        from services.realtime import start_realtime_scheduler
+        start_realtime_scheduler(app, socketio, interval=10)
+    except ImportError:
+        pass
+    
     print("Starting server with configuration:")
     print(f"Host: {app.config['HOST']}")
     print(f"Flask Port: {app.config['FLASK_PORT']}")
     print(f"SQLALCHEMY_DATABASE_URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
-    app.run(host=app.config['HOST'], port=int(app.config['FLASK_PORT']), debug=app.config['DEBUG'])
+    
+    # Run server with reloader disabled to avoid duplicate app instances.
+    socketio.run(app, host=app.config['HOST'], port=int(app.config['FLASK_PORT']), debug=app.config['DEBUG'], use_reloader=False)
