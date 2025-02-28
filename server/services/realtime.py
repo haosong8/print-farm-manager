@@ -98,8 +98,7 @@ def start_printer_scheduler(printer, socketio, interval=10, scheduler=None):
         try:
             data = fetch_printer_dynamic_data(printer)
             socketio.emit("printer_update", data)
-            print(data)
-            print(f"Polled printer {printer.printer_id} at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"{data} polled printer {printer.printer_id} at {time.strftime('%Y-%m-%d %H:%M:%S')}")
         except Exception as e:
             print(f"Error polling printer {printer.printer_id}: {e}")
     
