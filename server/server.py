@@ -1,5 +1,9 @@
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask
 from flask_cors import CORS
+from flask_socketio import SocketIO
 from config import parse_arguments, load_config, Config
 from models import db  # Import the shared db instance from models/__init__.py
 from extensions import socketio
@@ -39,9 +43,9 @@ def create_app(config_file):
     except ImportError:
         pass
 
-    socketio.init_app(app)
+    socketio.init_app(app, async_mode="eventlet", cors_allowed_origins="*")
     print("SocketIO instance:", socketio)
-    
+
     return app
 
 if __name__ == '__main__':
@@ -56,8 +60,6 @@ if __name__ == '__main__':
         import sys
         sys.exit(0)
     
-    from flask_socketio import SocketIO
-    socketio = SocketIO(app, cors_allowed_origins="*")
     try:
         from services.realtime import start_realtime_scheduler
         start_realtime_scheduler(app, socketio, interval=10)
@@ -70,4 +72,5 @@ if __name__ == '__main__':
     print(f"SQLALCHEMY_DATABASE_URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
     
     # Run server with reloader disabled to avoid duplicate app instances.
-    socketio.run(app, host=app.config['HOST'], port=int(app.config['FLASK_PORT']), debug=app.config['DEBUG'], use_reloader=False)
+    socketio.run(app, host=app.config['HOST'], port=int(app.config['FLASK_PORT']),
+                 debug=app.config['DEBUG'], use_reloader=False)
