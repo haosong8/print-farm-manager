@@ -60,6 +60,15 @@ if __name__ == '__main__':
         import sys
         sys.exit(0)
     
+    # On startup, mark all printers as disconnected.
+    with app.app_context():
+        from models.printers import Printer
+        printers = Printer.query.all()
+        for printer in printers:
+            printer.status = "disconnected"
+        db.session.commit()
+        print("All printer statuses have been set to disconnected.")
+
     try:
         from services.realtime import start_realtime_scheduler
         start_realtime_scheduler(app, socketio, interval=10)

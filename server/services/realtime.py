@@ -12,6 +12,20 @@ import time
 #   - 'initial_received': a flag to indicate if the initial response has been received.
 active_ws_clients = {}
 
+# This is our payload template for polling printer objects.
+PAYLOAD_TEMPLATE = {
+    "jsonrpc": "2.0",
+    "method": "printer.objects.query",
+    "params": {
+        "objects": {
+            "heater_bed": None,
+            "extruder": None,
+            "toolhead": None,
+            "print_stats": None,
+        }
+    }
+}
+
 def ws_on_message_factory(printer_ip, allowed_methods=None):
     def on_message(ws, message):
         print(f"[WS][{printer_ip}] Received message: {message}")
@@ -56,34 +70,18 @@ def ws_on_close_factory(printer_ip):
             info_msg = json.dumps({"info": "connection closed"})
             for sub_q in client.get("subscribers", []):
                 sub_q.put(info_msg)
-            # Optionally, clear the active connection:
-            # active_ws_clients.pop(printer_ip, None)
     return on_close
 
 def ws_on_open(ws, printer_ip):
-    print(f"[WS][{printer_ip}] Connection opened. Sending initial JSON-RPC request for printer objects.")
-    initial_payload = {
-        "jsonrpc": "2.0",
-        "method": "printer.objects.query",
-        "params": {
-            "objects": {
-                "heater_bed": None,
-                "extruder": None,
-                "toolhead": None,
-            }
-        },
-        "id": 1,
-    }
-    ws.send(json.dumps(initial_payload))
-    print(f"[WS][{printer_ip}] Initial request sent: {json.dumps(initial_payload)}")
-    # Delay polling until the initial response is received.
-    threading.Thread(target=wait_and_start_polling, args=(ws, printer_ip, 0.5), daemon=True).start()
+    print(f"[WS][{printer_ip}] Connection opened. Sending initial query for printer objects.")
+    payload = PAYLOAD_TEMPLATE.copy()
+    payload["id"] = 1
+    ws.send(json.dumps(payload))
+    print(f"[WS][{printer_ip}] Initial query sent: {json.dumps(payload)}")
+    # Wait for the initial response before starting polling.
+    threading.Thread(target=wait_for_initial, args=(ws, printer_ip, 0.5), daemon=True).start()
 
-def wait_and_start_polling(ws, printer_ip, poll_interval, max_wait=30):
-    """
-    Wait until the initial response (id==1) is received or until max_wait seconds have passed.
-    Then start periodic polling over the websocket.
-    """
+def wait_for_initial(ws, printer_ip, poll_interval, max_wait=30):
     start_time = time.time()
     client = active_ws_clients.get(printer_ip)
     while client is not None and not client.get("initial_received", False):
@@ -93,27 +91,12 @@ def wait_and_start_polling(ws, printer_ip, poll_interval, max_wait=30):
         time.sleep(0.1)
     periodic_polling(ws, printer_ip, poll_interval=poll_interval)
 
-def periodic_polling(ws, printer_ip, poll_interval=1):
-    """
-    Send a polling JSON-RPC request over the websocket every poll_interval seconds.
-    For diagnosis, poll_interval is set to 0.1 seconds.
-    """
+def periodic_polling(ws, printer_ip, poll_interval=0.5):
     counter = 2  # Starting id for subsequent requests.
-    payload_template = {
-        "jsonrpc": "2.0",
-        "method": "printer.objects.query",
-        "params": {
-            "objects": {
-                "heater_bed": None,
-                "extruder": None,
-                "toolhead": None,
-            }
-        }
-    }
     while True:
         try:
             time.sleep(poll_interval)
-            payload = payload_template.copy()
+            payload = PAYLOAD_TEMPLATE.copy()
             payload["id"] = counter
             counter += 1
             print(f"[WS][{printer_ip}] Sending polling payload: {json.dumps(payload)}")
@@ -139,11 +122,6 @@ def run_websocket_client(printer):
     ws_app.run_forever()
 
 def get_ws_subscription(printer):
-    """
-    Returns a new subscription queue for a given printer.
-    If a websocket client for this printer is already active, adds a new subscriber.
-    Otherwise, creates a new websocket connection.
-    """
     printer_ip = printer.ip_address
     if printer_ip not in active_ws_clients:
         print(f"[WS][{printer_ip}] No active connection found. Creating new websocket client.")
@@ -160,9 +138,6 @@ def get_ws_subscription(printer):
     return sub_q
 
 def remove_ws_subscription(printer, sub_q):
-    """
-    Removes a subscription queue from the printer's active subscribers.
-    """
     printer_ip = printer.ip_address
     if printer_ip in active_ws_clients:
         if sub_q in active_ws_clients[printer_ip]["subscribers"]:
@@ -170,10 +145,6 @@ def remove_ws_subscription(printer, sub_q):
             print(f"[WS][{printer_ip}] Subscription removed. Total subscribers: {len(active_ws_clients[printer_ip]['subscribers'])}")
 
 def check_printer_connection(printer):
-    """
-    Checks if there is an existing active websocket connection for the printer.
-    Returns True if the connection exists and is alive; otherwise, returns False.
-    """
     printer_ip = printer.ip_address
     if printer_ip in active_ws_clients:
         ws_info = active_ws_clients[printer_ip]
@@ -185,10 +156,6 @@ def check_printer_connection(printer):
     return False
 
 def disconnect_printer(printer):
-    """
-    Closes the active websocket connection for a given printer (if exists)
-    and removes its entry from active_ws_clients.
-    """
     printer_ip = printer.ip_address
     if printer_ip in active_ws_clients:
         ws_info = active_ws_clients[printer_ip]

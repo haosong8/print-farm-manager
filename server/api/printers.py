@@ -53,9 +53,6 @@ def add_printer():
         available_end_time=available_end_time
     )
     
-    # Mark the printer as offline until connected.
-    new_printer.is_online = False
-    
     db.session.add(new_printer)
     try:
         db.session.commit()
@@ -73,8 +70,11 @@ def connect_printer():
         "ip_address": "192.168.1.100"
     }
     When successfully connected, this endpoint:
+      - Sends an initial JSON-RPC request to retrieve printer state.
       - Checks connectivity to the printer.
-      - Initiates (or reuses) the Moonraker websocket connection.
+      - Reuses an existing Moonraker websocket connection if one exists, or initiates a new one.
+      - Updates the printer status based on the response.
+      - Returns the initial state along with the printer data.
     """
     data = request.get_json()
     print(data)
@@ -86,25 +86,69 @@ def connect_printer():
     if not printer:
         return jsonify({"message": "Printer not found"}), 400
 
+    # Send initial JSON-RPC request to get the printer objects state.
+    import requests, random
+    PAYLOAD_TEMPLATE = {
+        "jsonrpc": "2.0",
+        "method": "printer.objects.query",
+        "params": {
+            "objects": {
+                "heater_bed": None,
+                "extruder": None,
+                "toolhead": None,
+                "print_stats": None,
+            }
+        }
+    }
+    # Generate a random ID for the JSON-RPC request.
+    random_id = random.randint(1000, 9999)
+    payload = PAYLOAD_TEMPLATE.copy()
+    payload["id"] = random_id
+
+    try:
+        rpc_url = f"http://{ip_address}:{printer.port}/server/jsonrpc"
+        resp = requests.post(rpc_url, json=payload, timeout=5)
+        print(f"Response status: {resp.status_code}")
+        print(f"Response text: '{resp.text}'")
+        if not resp.text.strip():
+            raise ValueError("Empty response received")
+        initial_state = resp.json()
+        print(f"Initial state: {initial_state}")
+        # Extract status from the response.
+        # We use print_stats.state if available.
+        status_value = "Idle"  # fallback default
+        if "result" in initial_state and "status" in initial_state["result"]:
+            print_stats = initial_state["result"]["status"].get("print_stats", {})
+            if "state" in print_stats:
+                status_value = print_stats["state"]
+        print(f"Extracted printer status: {status_value}")
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch initial state: {str(e)}"}), 500
+
     # Lazy import realtime functions.
     from services.realtime import check_printer_connection, get_ws_subscription
 
     # Check if there is already an active websocket connection for this printer.
     if check_printer_connection(printer):
-        # Ensure a new subscription is added for this connection.
+        # Reuse the existing connection: add a new subscription if needed.
         get_ws_subscription(printer)
+        printer.status = status_value
+        db.session.commit()
         return jsonify({
-            "message": "This printer is already connected and the websocket is active.",
-            "printer": printer.to_dict()
+            "message": "Existing printer connection reused; status updated.",
+            "printer": printer.to_dict(),
+            "initial_state": initial_state
         }), 200
 
-    # Otherwise, try to initiate the connection by calling get_ws_subscription.
-    # This function will create a new websocket connection if one doesn't exist.
+    # Otherwise, initiate a new connection.
     get_ws_subscription(printer)
+    printer.status = status_value
+    db.session.commit()
     
     return jsonify({
-        "message": "Printer connected successfully and websocket initiated.",
-        "printer": printer.to_dict()
+        "message": "Printer connected successfully, websocket initiated, and status updated.",
+        "printer": printer.to_dict(),
+        "initial_state": initial_state
     }), 200
 
 @printer_bp.route('/connect/stream/<string:ip_address>', methods=['GET'])
