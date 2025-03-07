@@ -1,18 +1,17 @@
 import eventlet
 eventlet.monkey_patch()
 
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, join_room
 from config import parse_arguments, load_config, Config
-from models import db  # Import the shared db instance from models/__init__.py
+from models import db  # shared DB instance
 from extensions import socketio
 
 def create_app(config_file):
     app = Flask(__name__)
     CORS(app)
     
-    # Load configuration from file.
     config_data = load_config(config_file)
     server_config = Config(
         config_data['HOST'],
@@ -24,19 +23,14 @@ def create_app(config_file):
         config_data['DEBUG']
     )
     
-    # Construct the PostgreSQL connection string using DB_PORT.
     server_config.SQLALCHEMY_DATABASE_URI = (
         f"postgresql://{server_config.DB_USER}:{server_config.DB_PASSWORD}@"
         f"{server_config.HOST}:{server_config.DB_PORT}/{server_config.DB_NAME}"
     )
     
-    # Load configuration into the Flask app.
     app.config.from_object(server_config)
-    
-    # Initialize SQLAlchemy with the app.
     db.init_app(app)
     
-    # Register blueprints (if any)
     try:
         from api import register_blueprints
         register_blueprints(app)
@@ -45,7 +39,16 @@ def create_app(config_file):
 
     socketio.init_app(app, async_mode="eventlet", cors_allowed_origins="*")
     print("SocketIO instance:", socketio)
-
+    
+    @socketio.on("connect")
+    def handle_connect():
+        printer_ip = request.args.get("printerIp")
+        if printer_ip:
+            join_room(printer_ip)
+            print(f"Client joined room for printer {printer_ip}")
+        else:
+            print("Client connected without printerIp query parameter.")
+    
     return app
 
 if __name__ == '__main__':
@@ -60,7 +63,6 @@ if __name__ == '__main__':
         import sys
         sys.exit(0)
     
-    # On startup, mark all printers as disconnected.
     with app.app_context():
         from models.printers import Printer
         printers = Printer.query.all()
@@ -68,7 +70,7 @@ if __name__ == '__main__':
             printer.status = "disconnected"
         db.session.commit()
         print("All printer statuses have been set to disconnected.")
-
+    
     try:
         from services.realtime import start_realtime_scheduler
         start_realtime_scheduler(app, socketio, interval=10)
@@ -80,6 +82,5 @@ if __name__ == '__main__':
     print(f"Flask Port: {app.config['FLASK_PORT']}")
     print(f"SQLALCHEMY_DATABASE_URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
     
-    # Run server with reloader disabled to avoid duplicate app instances.
     socketio.run(app, host=app.config['HOST'], port=int(app.config['FLASK_PORT']),
                  debug=app.config['DEBUG'], use_reloader=False)
