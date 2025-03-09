@@ -7,6 +7,7 @@ from flask_socketio import SocketIO, join_room
 from config import parse_arguments, load_config, Config
 from models import db  # shared DB instance
 from extensions import socketio
+from sockets.utils import set_app_instance  # import the setter
 
 def create_app(config_file):
     app = Flask(__name__)
@@ -55,6 +56,10 @@ if __name__ == '__main__':
     args = parse_arguments()
     app = create_app(args.config)
     
+    # Set the global app instance for socket usage.
+    from sockets.utils import set_app_instance
+    set_app_instance(app)
+    
     if args.init.lower() == "base":
         with app.app_context():
             print("Registered tables:", list(db.metadata.tables.keys()))
@@ -71,11 +76,7 @@ if __name__ == '__main__':
         db.session.commit()
         print("All printer statuses have been set to disconnected.")
     
-    try:
-        from services.realtime import start_realtime_scheduler
-        start_realtime_scheduler(app, socketio, interval=10)
-    except ImportError:
-        pass
+    # (Optionally start MoonrakerSocket instances here if needed.)
     
     print("Starting server with configuration:")
     print(f"Host: {app.config['HOST']}")

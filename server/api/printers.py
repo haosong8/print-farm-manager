@@ -3,8 +3,13 @@ from models.printers import Printer
 from models import db
 from datetime import datetime
 import json
+import random
+import requests
 
 printer_bp = Blueprint('printer', __name__, url_prefix='/printers')
+
+# Global dictionary to store active MoonrakerSocket instances keyed by printer IP.
+moonrakerSockets = {}
 
 @printer_bp.route('/', methods=['GET'])
 def get_printers():
@@ -66,7 +71,7 @@ def connect_printer():
     if not printer:
         return jsonify({"message": "Printer not found"}), 400
 
-    import requests, random
+    # Prepare an initial JSON-RPC request.
     PAYLOAD_TEMPLATE = {
         "jsonrpc": "2.0",
         "method": "printer.objects.query",
@@ -76,6 +81,7 @@ def connect_printer():
                 "extruder": None,
                 "toolhead": None,
                 "print_stats": None,
+                "display_status": None,
             }
         }
     }
@@ -100,19 +106,20 @@ def connect_printer():
     except Exception as e:
         return jsonify({"error": f"Failed to fetch initial state: {str(e)}"}), 500
 
-    from services.realtime import check_printer_connection, get_ws_subscription
+    # Import MoonrakerSocket from your sockets package.
+    from sockets.moonraker_socket import MoonrakerSocket
 
-    if check_printer_connection(printer):
-        get_ws_subscription(printer)
-        printer.status = status_value
-        db.session.commit()
-        return jsonify({
-            "message": "Existing printer connection reused; status updated.",
-            "printer": printer.to_dict(),
-            "initial_state": initial_state
-        }), 200
+    # If a socket for this printer already exists, reuse it.
+    if ip_address in moonrakerSockets:
+        print(f"Reusing existing MoonrakerSocket for printer {ip_address}")
+        ms = moonrakerSockets[ip_address]
+    else:
+        print(f"Starting MoonrakerSocket for printer {ip_address}")
+        ms = MoonrakerSocket(printer, poll_interval=1)
+        ms.start()
+        moonrakerSockets[ip_address] = ms
 
-    get_ws_subscription(printer)
+    # Update the printer status in the database.
     printer.status = status_value
     db.session.commit()
     
@@ -133,8 +140,12 @@ def disconnect_printer_endpoint():
     if not printer:
         return jsonify({"message": "Printer not found"}), 400
     
-    from services.realtime import disconnect_printer as realtime_disconnect_printer
-    realtime_disconnect_printer(printer)
+    # Disconnect the MoonrakerSocket if it exists.
+    from sockets.moonraker_socket import MoonrakerSocket
+    if ip_address in moonrakerSockets:
+        ms = moonrakerSockets[ip_address]
+        ms.disconnect()
+        del moonrakerSockets[ip_address]
     
     printer.status = "disconnected"
     db.session.commit()
