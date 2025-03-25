@@ -20,6 +20,8 @@ def parse_arguments():
     )
     parser.add_argument('--config', type=str, help='Path to the configuration file', required=True)
     parser.add_argument('-i', '--init', type=str, help='Initialize database. Use "base" to create base database schema', default="")
+    # New argument for database migration
+    parser.add_argument('--migrate', action='store_true', help='Migrate database to latest schema', default=False)
     return parser.parse_args()
 
 class Config:

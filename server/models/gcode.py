@@ -1,12 +1,19 @@
-from . import db
+from sqlalchemy import Column, Integer, String, Time, Float
+from models import db
 
 class Gcode(db.Model):
     __tablename__ = 'gcodes'
+
     gcode_id = db.Column(db.Integer, primary_key=True)
     printer_id = db.Column(db.Integer, db.ForeignKey('printers.printer_id'), nullable=False)
     gcode_name = db.Column(db.String(255), nullable=False)
     estimated_print_time = db.Column(db.Interval)
     historical_print_time = db.Column(db.Interval)
+    filament_total = db.Column(db.Float)
+
+    # Relationship to product components that reference this gcode.
+    # Changed from backref to back_populates for a proper bidirectional relationship.
+    product_components = db.relationship('ProductComponent', back_populates='gcode', lazy='dynamic')
 
     def to_dict(self):
         return {

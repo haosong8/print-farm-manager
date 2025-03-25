@@ -1,6 +1,7 @@
 import eventlet
 eventlet.monkey_patch()
 
+import os
 from flask import Flask, request
 from flask_cors import CORS
 from flask_socketio import SocketIO, join_room
@@ -8,11 +9,17 @@ from config import parse_arguments, load_config, Config
 from models import db  # shared DB instance
 from extensions import socketio
 from sockets.utils import set_app_instance  # import the setter
+import sys
 
-def create_app(config_file):
+def create_app(config_file=None):
+    # Allow a default config file if none is provided.
+    if config_file is None:
+        config_file = os.environ.get("CONFIG_FILE", "config.conf")
+    
     app = Flask(__name__)
     CORS(app)
     
+    # Load configuration from the specified file.
     config_data = load_config(config_file)
     server_config = Config(
         config_data['HOST'],
@@ -24,6 +31,7 @@ def create_app(config_file):
         config_data['DEBUG']
     )
     
+    # Build the SQLALCHEMY_DATABASE_URI from the config data.
     server_config.SQLALCHEMY_DATABASE_URI = (
         f"postgresql://{server_config.DB_USER}:{server_config.DB_PASSWORD}@"
         f"{server_config.HOST}:{server_config.DB_PORT}/{server_config.DB_NAME}"
@@ -54,18 +62,22 @@ def create_app(config_file):
 
 if __name__ == '__main__':
     args = parse_arguments()
-    app = create_app(args.config)
+    app = create_app(args.config)  # When running server.py directly, pass the provided config file.
     
-    # Set the global app instance for socket usage.
-    from sockets.utils import set_app_instance
-    set_app_instance(app)
+    # If a migration flag is provided, run the migration and exit.
+    if any(flag in sys.argv for flag in ["migrate", "-m"]):
+        with app.app_context():
+            from flask_migrate import upgrade
+            upgrade()
+            print("Database migration applied successfully.")
+        sys.exit(0)
     
+    # If the init flag is set to "base", create all tables and exit.
     if args.init.lower() == "base":
         with app.app_context():
             print("Registered tables:", list(db.metadata.tables.keys()))
             db.create_all()
             print("Database tables and relationships created successfully.")
-        import sys
         sys.exit(0)
     
     with app.app_context():
@@ -76,7 +88,8 @@ if __name__ == '__main__':
         db.session.commit()
         print("All printer statuses have been set to disconnected.")
     
-    # (Optionally start MoonrakerSocket instances here if needed.)
+    # Set the global app instance for socket usage.
+    set_app_instance(app)
     
     print("Starting server with configuration:")
     print(f"Host: {app.config['HOST']}")

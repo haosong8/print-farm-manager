@@ -23,7 +23,7 @@ def add_printer():
     if not data:
         abort(400, description="No input data provided")
     
-    required_fields = ["ip_address", "port", "printer_name", "printer_model"]
+    required_fields = ["ip_address", "port", "printer_name", "printer_model", "webcam_address", "webcam_port"]
     for field in required_fields:
         if field not in data:
             abort(400, description=f"Missing required field: {field}")
@@ -40,15 +40,21 @@ def add_printer():
             available_end_time = datetime.strptime(data["available_end_time"], "%H:%M:%S").time()
         except ValueError:
             abort(400, description="Invalid format for available_end_time; expected HH:MM:SS")
+
+    print(data["webcam_address"])
     
     new_printer = Printer(
         ip_address=data["ip_address"],
         port=int(data["port"]),
+        webcam_address = data["webcam_address"],
+        webcam_port = int(data["webcam_port"]),
         printer_name=data["printer_name"],
         printer_model=data["printer_model"],
         available_start_time=available_start_time,
         available_end_time=available_end_time
     )
+
+    print(new_printer.to_dict())
     
     db.session.add(new_printer)
     try:
@@ -58,6 +64,54 @@ def add_printer():
         abort(400, description="A printer with that IP address already exists.")
     
     return jsonify(new_printer.to_dict()), 201
+
+# New Endpoint: Update a printer's values
+@printer_bp.route('/<string:ip_address>', methods=['PUT'])
+def update_printer(ip_address):
+    data = request.get_json()
+    if not data:
+        abort(400, description="No input data provided")
+
+    # Allowed fields for update.
+    allowed_fields = [
+        "ip_address", "port", "printer_name", "printer_model",
+        "webcam_address", "webcam_port", "available_start_time", "available_end_time", "status"
+    ]
+    
+    # Retrieve the printer by its current IP address.
+    printer = Printer.query.filter_by(ip_address=ip_address).first()
+    if not printer:
+        abort(404, description=f"Printer with IP {ip_address} not found")
+    
+    # Update each allowed field if provided in the request body.
+    for field, value in data.items():
+        if field not in allowed_fields:
+            abort(400, description=f"Field '{field}' is not allowed to be updated")
+        
+        if field in ["port", "webcam_port"]:
+            try:
+                setattr(printer, field, int(value))
+            except ValueError:
+                abort(400, description=f"Field '{field}' must be an integer")
+        elif field in ["available_start_time", "available_end_time"]:
+            if value:
+                try:
+                    parsed_time = datetime.strptime(value, "%H:%M:%S").time()
+                    setattr(printer, field, parsed_time)
+                except ValueError:
+                    abort(400, description=f"Invalid format for {field}; expected HH:MM:SS")
+            else:
+                setattr(printer, field, None)
+        else:
+            setattr(printer, field, value)
+    
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        abort(400, description=str(e))
+    
+    return jsonify(printer.to_dict()), 200
 
 @printer_bp.route('/connect', methods=['POST'])
 def connect_printer():
