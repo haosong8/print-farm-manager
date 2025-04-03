@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Time
+from sqlalchemy import Column, Integer, String, Time, Float
 from models import db
 
 class Printer(db.Model):
@@ -17,8 +17,12 @@ class Printer(db.Model):
     prepare_time = Column(Integer)
     supported_materials = Column(String, nullable=False)  # comma-separated list of materials
 
-    # Remove the product_components relationship since ProductComponent no longer has a printer_id FK.
-    # Instead, each Printer has gcodes:
+    # New fields for live stream scaling configuration:
+    camera_resolution_width = Column(Integer, nullable=True)   # e.g., 1920
+    camera_resolution_height = Column(Integer, nullable=True)  # e.g., 1080
+    camera_scaling_factor = Column(Float, nullable=True)         # e.g., 0.75
+
+    # Instead of product_components, each Printer has gcodes:
     gcodes = db.relationship('Gcode', backref='printer', lazy='dynamic')
 
     def to_dict(self):
@@ -33,5 +37,9 @@ class Printer(db.Model):
             "available_start_time": self.available_start_time.strftime("%H:%M:%S") if self.available_start_time else None,
             "available_end_time": self.available_end_time.strftime("%H:%M:%S") if self.available_end_time else None,
             "status": self.status,
-            "supported_materials": self.supported_materials.split(',') if self.supported_materials else []
+            "prepare_time": self.prepare_time,
+            "supported_materials": self.supported_materials.split(',') if self.supported_materials else [],
+            "camera_resolution_width": self.camera_resolution_width,
+            "camera_resolution_height": self.camera_resolution_height,
+            "camera_scaling_factor": self.camera_scaling_factor,
         }
