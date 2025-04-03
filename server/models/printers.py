@@ -15,9 +15,11 @@ class Printer(db.Model):
     available_end_time = Column(Time)
     status = Column(String, default="disconnected")
     prepare_time = Column(Integer)
+    supported_materials = Column(String, nullable=False)  # comma-separated list of materials
 
-    # Optional: relationship to product components that reference this printer.
-    product_components = db.relationship('ProductComponent', backref='printer', lazy='dynamic')
+    # Remove the product_components relationship since ProductComponent no longer has a printer_id FK.
+    # Instead, each Printer has gcodes:
+    gcodes = db.relationship('Gcode', backref='printer', lazy='dynamic')
 
     def to_dict(self):
         return {
@@ -31,4 +33,5 @@ class Printer(db.Model):
             "available_start_time": self.available_start_time.strftime("%H:%M:%S") if self.available_start_time else None,
             "available_end_time": self.available_end_time.strftime("%H:%M:%S") if self.available_end_time else None,
             "status": self.status,
+            "supported_materials": self.supported_materials.split(',') if self.supported_materials else []
         }

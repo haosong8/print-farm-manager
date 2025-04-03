@@ -2,7 +2,8 @@ from flask import Blueprint, request, jsonify, abort
 from models.printers import Printer
 from models import db
 from datetime import datetime
-import json
+import csv
+from io import StringIO
 import random
 import requests
 
@@ -205,3 +206,116 @@ def disconnect_printer_endpoint():
     db.session.commit()
     
     return jsonify({"message": "Printer disconnected"}), 200
+
+@printer_bp.route('/upload_csv', methods=['POST'])
+def upload_printers_csv():
+    """
+    Endpoint to upload printers via a CSV file.
+    The endpoint expects a file to be sent as form-data under the key "file".
+    It will update existing printers (by ip_address) and add new ones as needed.
+    Expected CSV headers:
+      ip_address, port, webcam_address, webcam_port, printer_name, printer_model,
+      available_start_time, available_end_time, prepare_time, supported_materials, status
+    Times should be in HH:MM:SS format.
+    """
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided in form-data with key 'file'"}), 400
+
+    file = request.files.get('file')
+    if not file or file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    try:
+        # Read the CSV file as text.
+        stream = StringIO(file.stream.read().decode("utf-8-sig"))
+        reader = csv.DictReader(stream)
+        results = []
+        for row in reader:
+            # Check for required fields.
+            required_fields = ["ip_address", "port", "webcam_address", "webcam_port", "printer_name", "printer_model"]
+            if not all(row.get(field) for field in required_fields):
+                # Skip rows missing required fields.
+                print(row)
+                continue
+
+            # Parse time fields.
+            available_start_time = None
+            available_end_time = None
+            if row.get("available_start_time"):
+                try:
+                    available_start_time = datetime.strptime(row["available_start_time"], "%H:%M:%S").time()
+                except ValueError:
+                    available_start_time = None
+            if row.get("available_end_time"):
+                try:
+                    available_end_time = datetime.strptime(row["available_end_time"], "%H:%M:%S").time()
+                except ValueError:
+                    available_end_time = None
+
+            # Convert numeric fields.
+            try:
+                port = int(row["port"])
+                webcam_port = int(row["webcam_port"])
+            except ValueError:
+                continue  # Skip row if conversion fails.
+
+            prepare_time = int(row["prepare_time"]) if row.get("prepare_time") else None
+            supported_materials = row.get("supported_materials", "")
+            status = row.get("status", "disconnected")
+
+            # Look for an existing printer by ip_address.
+            printer = Printer.query.filter_by(ip_address=row["ip_address"]).first()
+            if printer:
+                # Update existing printer.
+                printer.port = port
+                printer.webcam_address = row["webcam_address"]
+                printer.webcam_port = webcam_port
+                printer.printer_name = row["printer_name"]
+                printer.printer_model = row["printer_model"]
+                printer.available_start_time = available_start_time
+                printer.available_end_time = available_end_time
+                printer.prepare_time = prepare_time
+                printer.supported_materials = supported_materials
+                printer.status = status
+                results.append({"action": "updated", "printer": printer.to_dict()})
+            else:
+                # Create new printer.
+                new_printer = Printer(
+                    ip_address=row["ip_address"],
+                    port=port,
+                    webcam_address=row["webcam_address"],
+                    webcam_port=webcam_port,
+                    printer_name=row["printer_name"],
+                    printer_model=row["printer_model"],
+                    available_start_time=available_start_time,
+                    available_end_time=available_end_time,
+                    prepare_time=prepare_time,
+                    supported_materials=supported_materials,
+                    status=status
+                )
+                db.session.add(new_printer)
+                results.append({"action": "added", "printer": new_printer.to_dict()})
+        db.session.commit()
+        return jsonify({
+            "message": f"Processed {len(results)} printer rows.",
+            "results": results
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+    
+@printer_bp.route('/<string:ip_address>/details', methods=['GET'])
+def printer_details_json(ip_address):
+    """
+    Returns detailed information about a printer and its associated gcodes as JSON.
+    This endpoint is intended for consumption by your React frontend.
+    """
+    printer = Printer.query.filter_by(ip_address=ip_address).first()
+    if not printer:
+        return jsonify({"error": f"Printer with IP {ip_address} not found"}), 404
+
+    # Get associated gcodes.
+    gcodes = printer.gcodes.all()
+    printer_data = printer.to_dict()
+    printer_data["gcodes"] = [g.to_dict() for g in gcodes]
+    return jsonify(printer_data), 200

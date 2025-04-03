@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Time
+from sqlalchemy import Column, Integer, String, Time, DateTime
 from models import db
 
 class ScheduledPrint(db.Model):

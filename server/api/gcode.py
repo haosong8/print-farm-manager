@@ -28,99 +28,54 @@ def get_printer_by_ip(ip_address):
     printer_data['gcodes'] = [g.to_dict() for g in gcodes]
     return jsonify(printer_data), 200
 
-# Endpoint 1: Retrieve Gcode files from a printer, delete existing entries, and store new entries in the database
 @gcode_bp.route('/<string:printer_ip>/get_gcode', methods=['POST'])
-def fetch_gcode_files(printer_ip):
-    # Find the printer by its IP address in the database.
+def combined_bulk_fetch_and_history(printer_ip):
+    """
+    Combined bulk endpoint:
+    - Deletes existing Gcode records for the printer.
+    - Fetches the list of Gcode files from the printer.
+    - Fetches the printer job history.
+    - For each file, retrieves metadata (estimated_time, filament_total, filament_type),
+      and looks up the historical print time from the job history (if any).
+    - Creates complete Gcode objects and bulk-inserts them into the database.
+    - Returns a combined JSON response with both added and updated records.
+    """
+    from datetime import timedelta
+
+    # 1. Look up the printer by its IP.
     printer = Printer.query.filter_by(ip_address=printer_ip).first()
     if not printer:
         return jsonify({"error": f"No printer found with IP {printer_ip}"}), 404
 
-    # Delete all existing gcodes for this printer.
+    # 2. Delete existing gcodes for this printer.
     deleted = Gcode.query.filter_by(printer_id=printer.printer_id).delete()
-    db.session.commit()  # Commit deletion.
+    db.session.commit()
     print(f"Deleted {deleted} existing gcodes for printer {printer_ip}.")
 
-    # Construct the JSON-RPC URL using the printer's IP and port.
+    # 3. Construct the JSON-RPC URL.
     url = f"http://{printer.ip_address}:{printer.port}/server/jsonrpc"
-    payload = {
+
+    # 4. Fetch the list of Gcode files.
+    payload_list = {
         "jsonrpc": "2.0",
         "method": "server.files.list",
         "params": {"root": "gcodes"},
         "id": 4644
     }
-
     try:
-        response = requests.post(url, json=payload, timeout=5)
-        response.raise_for_status()
+        response_list = requests.post(url, json=payload_list, timeout=5)
+        response_list.raise_for_status()
     except Exception as e:
-        return jsonify({"error": f"Error connecting to printer: {str(e)}"}), 500
+        return jsonify({"error": f"Error connecting to printer for file list: {str(e)}"}), 500
 
-    data = response.json()
+    data = response_list.json()
     if "result" not in data:
-        return jsonify({"error": "Invalid response from printer"}), 500
+        return jsonify({"error": "Invalid response from printer for file list"}), 500
 
     file_list = data["result"]
-    new_files = []
-    for file_info in file_list:
-        file_path = file_info.get("path")
-        if not file_path:
-            continue
-        # Create a new Gcode record for each file.
-        new_gcode = Gcode(printer_id=printer.printer_id, gcode_name=file_path)
-        db.session.add(new_gcode)
-        new_files.append(new_gcode.to_dict())
-    db.session.commit()
 
-    return jsonify({"added": new_files, "total_files_found": len(file_list)}), 200
-
-# Endpoint 2: Retrieve metadata for each gcode file for a specific printer and update the Gcode model
-@gcode_bp.route('/<string:printer_ip>/metadata', methods=['POST'])
-def update_printer_gcode_metadata(printer_ip):
-    printer = Printer.query.filter_by(ip_address=printer_ip).first()
-    if not printer:
-        return jsonify({"error": f"No printer found with IP {printer_ip}"}), 404
-
-    # Construct the JSON-RPC URL using the printer's IP and port.
-    url = f"http://{printer.ip_address}:{printer.port}/server/jsonrpc"
-    gcodes = Gcode.query.filter_by(printer_id=printer.printer_id).all()
-    updated_records = []
-    for gcode in gcodes:
-        payload = {
-            "jsonrpc": "2.0",
-            "method": "server.files.metadata",
-            "params": {"filename": gcode.gcode_name},
-            "id": 3545
-        }
-        try:
-            response = requests.post(url, json=payload, timeout=5)
-            response.raise_for_status()
-            result = response.json().get("result", {})
-            if result:
-                # Convert seconds into timedelta for the INTERVAL columns.
-                if 'estimated_time' in result:
-                    seconds = int(result['estimated_time'])
-                    gcode.estimated_print_time = timedelta(seconds=seconds)
-                if 'historical_print_time' in result:
-                    seconds = int(result['historical_print_time'])
-                    gcode.historical_print_time = timedelta(seconds=seconds)
-                updated_records.append(gcode.to_dict())
-        except Exception as e:
-            continue
-
-    db.session.commit()
-    return jsonify({"updated": updated_records}), 200
-
-# Endpoint 3: Update historical print time estimation based on job history from Moonraker
-@gcode_bp.route('/<string:printer_ip>/update_history', methods=['POST'])
-def update_historical_print_time(printer_ip):
-    printer = Printer.query.filter_by(ip_address=printer_ip).first()
-    if not printer:
-        return jsonify({"error": f"No printer found with IP {printer_ip}"}), 404
-
-    # Construct the JSON-RPC URL using the printer's IP and port.
-    url = f"http://{printer.ip_address}:{printer.port}/server/jsonrpc"
-    payload = {
+    # 5. Fetch printer job history first.
+    payload_history = {
         "jsonrpc": "2.0",
         "method": "server.history.list",
         "params": {
@@ -131,34 +86,87 @@ def update_historical_print_time(printer_ip):
         "id": 5656
     }
     try:
-        response = requests.post(url, json=payload, timeout=10)
-        response.raise_for_status()
+        response_history = requests.post(url, json=payload_history, timeout=10)
+        response_history.raise_for_status()
     except Exception as e:
         return jsonify({"error": f"Error connecting to printer history: {str(e)}"}), 500
 
-    history_data = response.json()
+    history_data = response_history.json()
     if "result" not in history_data or "jobs" not in history_data["result"]:
         return jsonify({"error": "Invalid history response from printer"}), 500
 
     jobs = history_data["result"]["jobs"]
 
-    # Get all gcodes for this printer.
-    gcodes = Gcode.query.filter_by(printer_id=printer.printer_id).all()
-    updated_records = []
-    for gcode in gcodes:
-        # Find completed jobs for this gcode (matching by filename).
+    # 6. Process each file: fetch metadata, match with job history, and create new Gcode objects.
+    new_gcodes = []
+    for file_info in file_list:
+        file_path = file_info.get("path")
+        if not file_path:
+            continue
+
+        # Build metadata payload for this file.
+        payload_metadata = {
+            "jsonrpc": "2.0",
+            "method": "server.files.metadata",
+            "params": {"filename": file_path},
+            "id": 3545
+        }
+        try:
+            response_metadata = requests.post(url, json=payload_metadata, timeout=5)
+            response_metadata.raise_for_status()
+            result = response_metadata.json().get("result", {})
+        except Exception as e:
+            print(f"Error fetching metadata for {file_path}: {e}")
+            result = {}
+
+        # Process metadata.
+        est_print_time = (
+            timedelta(seconds=int(result['estimated_time']))
+            if 'estimated_time' in result and result['estimated_time'] != ""
+            else None
+        )
+        filament_total = (
+            float(result['filament_total'])
+            if 'filament_total' in result and result['filament_total'] != ""
+            else None
+        )
+        material = result['filament_type'] if 'filament_type' in result else "unknown"
+
+        # Look up matching completed jobs for this gcode (by filename) to determine historical_print_time.
+        historical_print_time = None
         matching_jobs = [
             job for job in jobs
-            if job.get("filename") == gcode.gcode_name and job.get("status") == "completed" and job.get("end_time") is not None
+            if job.get("filename") == file_path
+            and job.get("status") == "completed"
+            and job.get("end_time") is not None
         ]
         if matching_jobs:
-            # Choose the job with the latest end_time.
             latest_job = max(matching_jobs, key=lambda j: j.get("end_time", 0))
             total_duration = latest_job.get("total_duration")
-            if total_duration is not None:
-                # Convert the total_duration (in seconds) into a timedelta.
-                gcode.historical_print_time = timedelta(seconds=int(total_duration))
-                updated_records.append(gcode.to_dict())
+            if total_duration is not None and total_duration != "":
+                historical_print_time = timedelta(seconds=int(total_duration))
 
-    db.session.commit()
-    return jsonify({"updated": updated_records}), 200
+        # Create a new Gcode record.
+        new_gcode = Gcode(
+            printer_id=printer.printer_id,
+            gcode_name=file_path,
+            estimated_print_time=est_print_time,
+            historical_print_time=historical_print_time,
+            filament_total=filament_total,
+            material=material,
+        )
+        new_gcodes.append(new_gcode)
+
+    # 7. Bulk insert new Gcode records.
+    try:
+        db.session.bulk_save_objects(new_gcodes)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Error inserting new gcodes into database: {str(e)}"}), 500
+
+    inserted = [g.to_dict() for g in new_gcodes]
+    return jsonify({
+        "added": inserted,
+        "total_files_found": len(file_list)
+    }), 200

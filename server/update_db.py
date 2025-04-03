@@ -2,15 +2,23 @@
 
 import os
 import sys
-from config import parse_arguments, load_config, Config
+import argparse
+from config import load_config, Config
 from models import db
 from flask import Flask
 from flask_migrate import upgrade, Migrate
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Update database using Flask-Migrate")
+    parser.add_argument('--config', required=True, help='Path to the server configuration file')
+    parser.add_argument('--revision', help='Target revision to upgrade to', default=None)
+    # You can add additional arguments here if needed.
+    return parser.parse_args()
+
 def create_app_for_migration(config_file):
     """
     Create a minimal Flask app for running database migrations.
-    This function loads the configuration the same way as in server.py.
+    This function loads the configuration in the same way as server.py.
     """
     app = Flask(__name__)
     
@@ -155,13 +163,11 @@ format = %(levelname)-5.5s [%(name)s] %(message)s
         f.write(alembic_ini_content)
 
 def main():
-    # Parse command-line arguments (which must include --config pointing to your server.conf)
     args = parse_arguments()
-    # Create the Flask app using the provided config file.
+    target_revision = args.revision
     app = create_app_for_migration(args.config)
     
     # Initialize Flask-Migrate with the app and database.
-    from flask_migrate import Migrate
     migrate = Migrate(app, db)
     
     with app.app_context():
@@ -169,8 +175,12 @@ def main():
         ensure_migrations_structure()
         print("Applying migrations using Flask-Migrate...")
         try:
-            upgrade(directory='migrations')
-            print("Database updated successfully.")
+            if target_revision:
+                upgrade(directory='migrations', revision=target_revision)
+                print(f"Database upgraded successfully to revision {target_revision}.")
+            else:
+                upgrade(directory='migrations')
+                print("Database upgraded successfully to the head revision.")
         except Exception as e:
             print("Error applying migrations:", e)
             sys.exit(1)

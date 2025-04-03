@@ -10,10 +10,10 @@ class Gcode(db.Model):
     estimated_print_time = db.Column(db.Interval)
     historical_print_time = db.Column(db.Interval)
     filament_total = db.Column(db.Float)
+    material = db.Column(db.String(100), nullable=False)  # new field
 
-    # Relationship to product components that reference this gcode.
-    # Changed from backref to back_populates for a proper bidirectional relationship.
-    product_components = db.relationship('ProductComponent', back_populates='gcode', lazy='dynamic')
+    # Remove the following line because the many-to-many relationship is defined in ProductComponent.
+    # product_components = db.relationship('ProductComponent', back_populates='gcode', lazy='dynamic')
 
     def to_dict(self):
         return {
@@ -22,4 +22,5 @@ class Gcode(db.Model):
             "gcode_name": self.gcode_name,
             "estimated_print_time": str(self.estimated_print_time) if self.estimated_print_time else None,
             "historical_print_time": str(self.historical_print_time) if self.historical_print_time else None,
+            "material": self.material
         }
