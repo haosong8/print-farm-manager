@@ -41,21 +41,21 @@ def add_printer():
             available_end_time = datetime.strptime(data["available_end_time"], "%H:%M:%S").time()
         except ValueError:
             abort(400, description="Invalid format for available_end_time; expected HH:MM:SS")
-
-    print(data["webcam_address"])
     
     new_printer = Printer(
-        ip_address=data["ip_address"],
-        port=int(data["port"]),
+        ip_address = data["ip_address"],
+        port = int(data["port"]),
         webcam_address = data["webcam_address"],
         webcam_port = int(data["webcam_port"]),
-        printer_name=data["printer_name"],
-        printer_model=data["printer_model"],
-        available_start_time=available_start_time,
-        available_end_time=available_end_time
+        printer_name = data["printer_name"],
+        printer_model = data["printer_model"],
+        available_start_time = available_start_time,
+        available_end_time = available_end_time,
+        # New camera configuration fields (optional)
+        camera_resolution_width = int(data["camera_resolution_width"]) if data.get("camera_resolution_width") else None,
+        camera_resolution_height = int(data["camera_resolution_height"]) if data.get("camera_resolution_height") else None,
+        camera_scaling_factor = float(data["camera_scaling_factor"]) if data.get("camera_scaling_factor") else None
     )
-
-    print(new_printer.to_dict())
     
     db.session.add(new_printer)
     try:
@@ -66,7 +66,6 @@ def add_printer():
     
     return jsonify(new_printer.to_dict()), 201
 
-# New Endpoint: Update a printer's values
 @printer_bp.route('/<string:ip_address>', methods=['PUT'])
 def update_printer(ip_address):
     data = request.get_json()
@@ -76,7 +75,8 @@ def update_printer(ip_address):
     # Allowed fields for update.
     allowed_fields = [
         "ip_address", "port", "printer_name", "printer_model",
-        "webcam_address", "webcam_port", "available_start_time", "available_end_time", "status"
+        "webcam_address", "webcam_port", "available_start_time", "available_end_time", "status",
+        "camera_resolution_width", "camera_resolution_height", "camera_scaling_factor"
     ]
     
     # Retrieve the printer by its current IP address.
@@ -84,16 +84,21 @@ def update_printer(ip_address):
     if not printer:
         abort(404, description=f"Printer with IP {ip_address} not found")
     
-    # Update each allowed field if provided in the request body.
+    # Update each allowed field if provided.
     for field, value in data.items():
         if field not in allowed_fields:
             abort(400, description=f"Field '{field}' is not allowed to be updated")
         
-        if field in ["port", "webcam_port"]:
+        if field in ["port", "webcam_port", "camera_resolution_width", "camera_resolution_height"]:
             try:
                 setattr(printer, field, int(value))
             except ValueError:
                 abort(400, description=f"Field '{field}' must be an integer")
+        elif field == "camera_scaling_factor":
+            try:
+                setattr(printer, field, float(value))
+            except ValueError:
+                abort(400, description=f"Field '{field}' must be a number")
         elif field in ["available_start_time", "available_end_time"]:
             if value:
                 try:
@@ -117,7 +122,6 @@ def update_printer(ip_address):
 @printer_bp.route('/connect', methods=['POST'])
 def connect_printer():
     data = request.get_json()
-    print(data)
     if not data or "ip_address" not in data:
         abort(400, description="ip_address field is required")
     
@@ -126,45 +130,9 @@ def connect_printer():
     if not printer:
         return jsonify({"message": "Printer not found"}), 400
 
-    # Prepare an initial JSON-RPC request.
-    PAYLOAD_TEMPLATE = {
-        "jsonrpc": "2.0",
-        "method": "printer.objects.query",
-        "params": {
-            "objects": {
-                "heater_bed": None,
-                "extruder": None,
-                "toolhead": None,
-                "print_stats": None,
-                "display_status": None,
-            }
-        }
-    }
-    random_id = random.randint(1000, 9999)
-    payload = PAYLOAD_TEMPLATE.copy()
-    payload["id"] = random_id
-
-    try:
-        rpc_url = f"http://{ip_address}:{printer.port}/server/jsonrpc"
-        resp = requests.post(rpc_url, json=payload, timeout=5)
-        print(f"Response status: {resp.status_code}")
-        print(f"Response text: '{resp.text}'")
-        if not resp.text.strip():
-            raise ValueError("Empty response received")
-        initial_state = resp.json()
-        print(f"Initial state: {initial_state}")
-        if "result" in initial_state and "status" in initial_state["result"]:
-            print_stats = initial_state["result"]["status"].get("print_stats", {})
-            if "state" in print_stats:
-                status_value = print_stats["state"]
-        print(f"Extracted printer status: {status_value}")
-    except Exception as e:
-        return jsonify({"error": f"Failed to fetch initial state: {str(e)}"}), 500
-
-    # Import MoonrakerSocket from your sockets package.
+    # Instead of sending an HTTP JSON-RPC request, we simply open the MoonrakerSocket.
     from sockets.moonraker_socket import MoonrakerSocket
 
-    # If a socket for this printer already exists, reuse it.
     if ip_address in moonrakerSockets:
         print(f"Reusing existing MoonrakerSocket for printer {ip_address}")
         ms = moonrakerSockets[ip_address]
@@ -174,14 +142,13 @@ def connect_printer():
         ms.start()
         moonrakerSockets[ip_address] = ms
 
-    # Update the printer status in the database.
-    printer.status = status_value
+    # Update the printer status (this may be further updated by the websocket polling)
+    printer.status = "connected"
     db.session.commit()
     
     return jsonify({
         "message": "Printer connected successfully, websocket initiated, and status updated.",
-        "printer": printer.to_dict(),
-        "initial_state": initial_state
+        "printer": printer.to_dict()
     }), 200
 
 @printer_bp.route('/disconnect', methods=['POST'])
@@ -195,8 +162,8 @@ def disconnect_printer_endpoint():
     if not printer:
         return jsonify({"message": "Printer not found"}), 400
     
-    # Disconnect the MoonrakerSocket if it exists.
     from sockets.moonraker_socket import MoonrakerSocket
+    
     if ip_address in moonrakerSockets:
         ms = moonrakerSockets[ip_address]
         ms.disconnect()
@@ -215,7 +182,8 @@ def upload_printers_csv():
     It will update existing printers (by ip_address) and add new ones as needed.
     Expected CSV headers:
       ip_address, port, webcam_address, webcam_port, printer_name, printer_model,
-      available_start_time, available_end_time, prepare_time, supported_materials, status
+      available_start_time, available_end_time, prepare_time, supported_materials, status,
+      camera_resolution_width, camera_resolution_height, camera_scaling_factor
     Times should be in HH:MM:SS format.
     """
     if 'file' not in request.files:
@@ -226,19 +194,15 @@ def upload_printers_csv():
         return jsonify({"error": "No file selected"}), 400
 
     try:
-        # Read the CSV file as text.
         stream = StringIO(file.stream.read().decode("utf-8-sig"))
         reader = csv.DictReader(stream)
         results = []
         for row in reader:
-            # Check for required fields.
             required_fields = ["ip_address", "port", "webcam_address", "webcam_port", "printer_name", "printer_model"]
             if not all(row.get(field) for field in required_fields):
-                # Skip rows missing required fields.
                 print(row)
                 continue
 
-            # Parse time fields.
             available_start_time = None
             available_end_time = None
             if row.get("available_start_time"):
@@ -252,21 +216,23 @@ def upload_printers_csv():
                 except ValueError:
                     available_end_time = None
 
-            # Convert numeric fields.
             try:
                 port = int(row["port"])
                 webcam_port = int(row["webcam_port"])
             except ValueError:
-                continue  # Skip row if conversion fails.
+                continue
 
             prepare_time = int(row["prepare_time"]) if row.get("prepare_time") else None
             supported_materials = row.get("supported_materials", "")
             status = row.get("status", "disconnected")
 
-            # Look for an existing printer by ip_address.
+            # New camera configuration fields.
+            camera_resolution_width = int(row["camera_resolution_width"]) if row.get("camera_resolution_width") else None
+            camera_resolution_height = int(row["camera_resolution_height"]) if row.get("camera_resolution_height") else None
+            camera_scaling_factor = float(row["camera_scaling_factor"]) if row.get("camera_scaling_factor") else None
+
             printer = Printer.query.filter_by(ip_address=row["ip_address"]).first()
             if printer:
-                # Update existing printer.
                 printer.port = port
                 printer.webcam_address = row["webcam_address"]
                 printer.webcam_port = webcam_port
@@ -277,21 +243,26 @@ def upload_printers_csv():
                 printer.prepare_time = prepare_time
                 printer.supported_materials = supported_materials
                 printer.status = status
+                printer.camera_resolution_width = camera_resolution_width
+                printer.camera_resolution_height = camera_resolution_height
+                printer.camera_scaling_factor = camera_scaling_factor
                 results.append({"action": "updated", "printer": printer.to_dict()})
             else:
-                # Create new printer.
                 new_printer = Printer(
-                    ip_address=row["ip_address"],
-                    port=port,
-                    webcam_address=row["webcam_address"],
-                    webcam_port=webcam_port,
-                    printer_name=row["printer_name"],
-                    printer_model=row["printer_model"],
-                    available_start_time=available_start_time,
-                    available_end_time=available_end_time,
-                    prepare_time=prepare_time,
-                    supported_materials=supported_materials,
-                    status=status
+                    ip_address = row["ip_address"],
+                    port = port,
+                    webcam_address = row["webcam_address"],
+                    webcam_port = webcam_port,
+                    printer_name = row["printer_name"],
+                    printer_model = row["printer_model"],
+                    available_start_time = available_start_time,
+                    available_end_time = available_end_time,
+                    prepare_time = prepare_time,
+                    supported_materials = supported_materials,
+                    status = status,
+                    camera_resolution_width = camera_resolution_width,
+                    camera_resolution_height = camera_resolution_height,
+                    camera_scaling_factor = camera_scaling_factor,
                 )
                 db.session.add(new_printer)
                 results.append({"action": "added", "printer": new_printer.to_dict()})
@@ -303,7 +274,7 @@ def upload_printers_csv():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
-    
+
 @printer_bp.route('/<string:ip_address>/details', methods=['GET'])
 def printer_details_json(ip_address):
     """
@@ -314,7 +285,6 @@ def printer_details_json(ip_address):
     if not printer:
         return jsonify({"error": f"Printer with IP {ip_address} not found"}), 404
 
-    # Get associated gcodes.
     gcodes = printer.gcodes.all()
     printer_data = printer.to_dict()
     printer_data["gcodes"] = [g.to_dict() for g in gcodes]

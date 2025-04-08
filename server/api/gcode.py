@@ -33,15 +33,13 @@ def combined_bulk_fetch_and_history(printer_ip):
     """
     Combined bulk endpoint:
     - Deletes existing Gcode records for the printer.
-    - Fetches the list of Gcode files from the printer.
-    - Fetches the printer job history.
-    - For each file, retrieves metadata (estimated_time, filament_total, filament_type),
+    - Uses HTTP GET requests to fetch the list of Gcode files from the printer.
+    - Uses HTTP GET requests to fetch printer job history.
+    - For each file, retrieves metadata via HTTP GET (e.g., estimated_time, filament_total, filament_type)
       and looks up the historical print time from the job history (if any).
     - Creates complete Gcode objects and bulk-inserts them into the database.
     - Returns a combined JSON response with both added and updated records.
     """
-    from datetime import timedelta
-
     # 1. Look up the printer by its IP.
     printer = Printer.query.filter_by(ip_address=printer_ip).first()
     if not printer:
@@ -52,18 +50,12 @@ def combined_bulk_fetch_and_history(printer_ip):
     db.session.commit()
     print(f"Deleted {deleted} existing gcodes for printer {printer_ip}.")
 
-    # 3. Construct the JSON-RPC URL.
-    url = f"http://{printer.ip_address}:{printer.port}/server/jsonrpc"
+    # 3. Build the base URL for HTTP endpoints.
+    base_url = f"http://{printer.ip_address}:{printer.port}/server"
 
-    # 4. Fetch the list of Gcode files.
-    payload_list = {
-        "jsonrpc": "2.0",
-        "method": "server.files.list",
-        "params": {"root": "gcodes"},
-        "id": 4644
-    }
+    # 4. Fetch the list of Gcode files via HTTP GET.
     try:
-        response_list = requests.post(url, json=payload_list, timeout=5)
+        response_list = requests.get(f"{base_url}/files/list", params={"root": "gcodes"}, timeout=5)
         response_list.raise_for_status()
     except Exception as e:
         return jsonify({"error": f"Error connecting to printer for file list: {str(e)}"}), 500
@@ -74,19 +66,9 @@ def combined_bulk_fetch_and_history(printer_ip):
 
     file_list = data["result"]
 
-    # 5. Fetch printer job history first.
-    payload_history = {
-        "jsonrpc": "2.0",
-        "method": "server.history.list",
-        "params": {
-            "limit": 50,
-            "start": 10,
-            "order": "asc"
-        },
-        "id": 5656
-    }
+    # 5. Fetch printer job history via HTTP GET.
     try:
-        response_history = requests.post(url, json=payload_history, timeout=10)
+        response_history = requests.get(f"{base_url}/history/list", params={"limit": 50, "start": 10, "order": "asc"}, timeout=10)
         response_history.raise_for_status()
     except Exception as e:
         return jsonify({"error": f"Error connecting to printer history: {str(e)}"}), 500
@@ -97,22 +79,15 @@ def combined_bulk_fetch_and_history(printer_ip):
 
     jobs = history_data["result"]["jobs"]
 
-    # 6. Process each file: fetch metadata, match with job history, and create new Gcode objects.
+    # 6. Process each file: for each file in the file list, fetch metadata via HTTP GET and then match with job history.
     new_gcodes = []
     for file_info in file_list:
         file_path = file_info.get("path")
         if not file_path:
             continue
 
-        # Build metadata payload for this file.
-        payload_metadata = {
-            "jsonrpc": "2.0",
-            "method": "server.files.metadata",
-            "params": {"filename": file_path},
-            "id": 3545
-        }
         try:
-            response_metadata = requests.post(url, json=payload_metadata, timeout=5)
+            response_metadata = requests.get(f"{base_url}/files/metadata", params={"filename": file_path}, timeout=5)
             response_metadata.raise_for_status()
             result = response_metadata.json().get("result", {})
         except Exception as e:

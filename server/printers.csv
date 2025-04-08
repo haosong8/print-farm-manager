@@ -1,9 +1,9 @@
-﻿ip_address,port,webcam_address,webcam_port,printer_name,printer_model,available_start_time,available_end_time,prepare_time,supported_materials,status
-192.168.4.100,4408,/camera.html,80,K2 Plus - 1,Creality K2 Plus,11:00:00,22:00:00,30,"PLA,PETG,ABS,ASA",disconnected
-192.168.4.101,4408,/camera.html,80,K2 Plus - 2,Creality K2 Plus,11:00:00,22:00:00,30,"PLA,PETG,ABS,ASA",disconnected
-192.168.4.7,4408,/,8000,Creality Hi - 1,Creality Hi,11:00:00,22:00:00,10,"PLA,PETG,PA",disconnected
-192.168.4.13,80,/webcam/?action=stream,80,SV06 - 1,SV06,11:00:00,22:00:00,10,"PLA,PETG,PA",disconnected
-192.168.4.14,80,/webcam/?action=stream,80,SV06 - 2,SV06,11:00:00,22:00:00,10,"PLA,PETG,PA",disconnected
-192.168.4.18,80,/webcam/?action=stream,80,SV06 - 3,SV06,11:00:00,22:00:00,10,"PLA,PETG,PA",disconnected
-192.168.4.16,80,/webcam/?action=stream,80,SV06 - 4,SV06,11:00:00,22:00:00,10,"PLA,PETG,PA",disconnected
-192.168.4.53,80,/webcam/?action=stream,80,SV06 ACE - 1,SV06 ACE,11:00:00,22:00:00,10,"PLA,PETG,PA",disconnected
+﻿ip_address,port,webcam_address,webcam_port,printer_name,printer_model,available_start_time,available_end_time,prepare_time,supported_materials,camera_resolution_width,camera_resolution_height,camera_scaling_factor,status
+192.168.4.100,4408,/,8000,K2 Plus - 1,Creality K2 Plus,11:00:00,22:00:00,30,"PLA,PETG,ABS,ASA",2880,1620,1.3,disconnected
+192.168.4.101,4408,/,8000,K2 Plus - 2,Creality K2 Plus,11:00:00,22:00:00,30,"PLA,PETG,ABS,ASA",2880,1620,1.3,disconnected
+192.168.4.7,4408,/,8000,Creality Hi - 1,Creality Hi,11:00:00,22:00:00,10,"PLA,PETG,PA",1920,1080,1.3,disconnected
+192.168.4.13,80,/webcam/?action=stream,80,SV06 - 1,SV06,11:00:00,22:00:00,10,"PLA,PETG,PA",960,720,1,disconnected
+192.168.4.14,80,/webcam/?action=stream,80,SV06 - 2,SV06,11:00:00,22:00:00,10,"PLA,PETG,PA",960,720,1,disconnected
+192.168.4.18,80,/webcam/?action=stream,80,SV06 - 3,SV06,11:00:00,22:00:00,10,"PLA,PETG,PA",960,720,1,disconnected
+192.168.4.16,80,/webcam/?action=stream,80,SV06 - 4,SV06,11:00:00,22:00:00,10,"PLA,PETG,PA",960,720,1,disconnected
+192.168.4.53,80,/webcam/?action=stream,80,SV06 ACE - 1,SV06 ACE,11:00:00,22:00:00,10,"PLA,PETG,PA",960,720,1,disconnected
