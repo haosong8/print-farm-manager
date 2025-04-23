@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Time, Float
+from sqlalchemy import Column, Integer, String, Time, Float, Boolean
 from models import db
 
 class Printer(db.Model):
@@ -20,7 +20,10 @@ class Printer(db.Model):
     # New fields for live stream scaling configuration:
     camera_resolution_width = Column(Integer, nullable=True)   # e.g., 1920
     camera_resolution_height = Column(Integer, nullable=True)  # e.g., 1080
-    camera_scaling_factor = Column(Float, nullable=True)         # e.g., 0.75
+    camera_scaling_factor = Column(Float, nullable=True)       # e.g., 0.75
+
+    # **New heated chamber flag**
+    heated_chamber = Column(Boolean, nullable=False, default=False)
 
     # Instead of product_components, each Printer has gcodes:
     gcodes = db.relationship('Gcode', backref='printer', lazy='dynamic')
@@ -42,4 +45,6 @@ class Printer(db.Model):
             "camera_resolution_width": self.camera_resolution_width,
             "camera_resolution_height": self.camera_resolution_height,
             "camera_scaling_factor": self.camera_scaling_factor,
+            # include the new field
+            "heated_chamber": self.heated_chamber,
         }

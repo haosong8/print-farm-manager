@@ -23,6 +23,7 @@ def create_app(config_file=None):
     config_data = load_config(config_file)
     server_config = Config(
         config_data['HOST'],
+        config_data['DB_HOST'],
         config_data['DB_PORT'],
         config_data['FLASK_PORT'],
         config_data['DB_NAME'],
@@ -31,11 +32,12 @@ def create_app(config_file=None):
         config_data['DEBUG']
     )
     
-    # Build the SQLALCHEMY_DATABASE_URI from the config data.
+    # Build the SQLALCHEMY_DATABASE_URI using the correct attribute names.
     server_config.SQLALCHEMY_DATABASE_URI = (
         f"postgresql://{server_config.DB_USER}:{server_config.DB_PASSWORD}@"
-        f"{server_config.HOST}:{server_config.DB_PORT}/{server_config.DB_NAME}"
+        f"{server_config.DB_HOST}:{server_config.DB_PORT}/{server_config.DB_NAME}"
     )
+    print(server_config.SQLALCHEMY_DATABASE_URI)
     
     app.config.from_object(server_config)
     db.init_app(app)
@@ -62,7 +64,7 @@ def create_app(config_file=None):
 
 if __name__ == '__main__':
     args = parse_arguments()
-    app = create_app(args.config)  # When running server.py directly, pass the provided config file.
+    app = create_app(args.config)  # Use the provided config file.
     
     # If a migration flag is provided, run the migration and exit.
     if any(flag in sys.argv for flag in ["migrate", "-m"]):
@@ -89,6 +91,7 @@ if __name__ == '__main__':
         print("All printer statuses have been set to disconnected.")
     
     # Set the global app instance for socket usage.
+    from sockets.utils import set_app_instance
     set_app_instance(app)
     
     print("Starting server with configuration:")

@@ -25,13 +25,18 @@ def parse_arguments():
     return parser.parse_args()
 
 class Config:
-    def __init__(self, host, db_port, flask_port, db_name, db_user, db_password, debug, db_uri="default"):
+    def __init__(self, host, db_host, db_port, flask_port, db_name, db_user, db_password, debug, db_uri="default"):
+        # HOST: Public host used for binding the Flask app.
         self.HOST = host
+        # DB_HOST: Host address for the PostgreSQL database.
+        self.DB_HOST = db_host
         self.DB_PORT = db_port
         self.FLASK_PORT = flask_port
         self.DB_NAME = db_name
         self.DB_USER = db_user
         self.DB_PASSWORD = db_password
         self.DB_DEBUG = debug
-        self.SQLALCHEMY_DATABASE_URI = db_uri  # Will be constructed later.
+        # SQLALCHEMY_DATABASE_URI will be built later (for example, in your server.py)
+        self.SQLALCHEMY_DATABASE_URI = db_uri
+        # Set the debug flag appropriately.
         self.DEBUG = debug.lower() == 'true'

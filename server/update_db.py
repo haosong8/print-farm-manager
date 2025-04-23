@@ -16,16 +16,13 @@ def parse_arguments():
     return parser.parse_args()
 
 def create_app_for_migration(config_file):
-    """
-    Create a minimal Flask app for running database migrations.
-    This function loads the configuration in the same way as server.py.
-    """
     app = Flask(__name__)
     
     # Load configuration from the specified file.
     config_data = load_config(config_file)
     server_config = Config(
         config_data['HOST'],
+        config_data['DB_HOST'],      # <-- use DB_HOST, not DB_PORT here
         config_data['DB_PORT'],
         config_data['FLASK_PORT'],
         config_data['DB_NAME'],
@@ -34,10 +31,10 @@ def create_app_for_migration(config_file):
         config_data['DEBUG']
     )
     
-    # Build the SQLALCHEMY_DATABASE_URI from the config data.
+    # Build the SQLALCHEMY_DATABASE_URI exactly as in server.py
     server_config.SQLALCHEMY_DATABASE_URI = (
-        f"postgresql://{server_config.DB_USER}:{server_config.DB_PASSWORD}@"
-        f"{server_config.HOST}:{server_config.DB_PORT}/{server_config.DB_NAME}"
+        f"postgresql://{server_config.DB_USER}:{server_config.DB_PASSWORD}"
+        f"@{server_config.DB_HOST}:{server_config.DB_PORT}/{server_config.DB_NAME}"
     )
     
     app.config.from_object(server_config)
