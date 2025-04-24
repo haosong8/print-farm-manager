@@ -82,7 +82,7 @@ class HTTPPoller:
 
             response.raise_for_status()  # Raises on 4xx/5xx
             data = response.json()
-            print(f"[HTTPPoller][{self.printer.ip_address}] Poll result: {json.dumps(data)}")
+            # print(f"[HTTPPoller][{self.printer.ip_address}] Poll result: {json.dumps(data)}")
 
             if self.callback:
                 self.callback(self.printer.ip_address, data)
@@ -117,7 +117,7 @@ def update_printer_status_callback(printer_ip, data):
     Emits the data to all Socket.IO clients in the printer's room.
     """
     try:
-        print(f"[HTTPPoller][{printer_ip}] Emitting update: {json.dumps(data)}")
+        # print(f"[HTTPPoller][{printer_ip}] Emitting update: {json.dumps(data)}")
         socketio.emit("printer_update", data, room=printer_ip)
     except Exception as e:
         print(f"[HTTPPoller][{printer_ip}] Error emitting update: {e}")

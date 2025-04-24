@@ -1,12 +1,23 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Table
+from sqlalchemy.orm import backref
 from models import db
 
-# Association table to represent the many-to-many relationship between product components and gcodes.
+# Association table: cascade deletes on both sides
 component_gcode_association = Table(
     'component_gcode_association',
     db.Model.metadata,
-    Column('product_component_id', Integer, ForeignKey('product_components.id'), primary_key=True),
-    Column('gcode_id', Integer, ForeignKey('gcodes.gcode_id'), primary_key=True)
+    Column(
+        'product_component_id',
+        Integer,
+        ForeignKey('product_components.id', ondelete='CASCADE'),
+        primary_key=True
+    ),
+    Column(
+        'gcode_id',
+        Integer,
+        ForeignKey('gcodes.gcode_id', ondelete='CASCADE'),
+        primary_key=True
+    )
 )
 
 class Product(db.Model):
@@ -15,10 +26,13 @@ class Product(db.Model):
     product_id = Column(Integer, primary_key=True)
     product_name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    due_date = Column(DateTime, nullable=False)  # When the product must be completed
+    due_date = Column(DateTime, nullable=False)
     
-    # A product is composed of one or more components (parts that need to be printed)
-    components = db.relationship('ProductComponent', back_populates='product', cascade="all, delete-orphan")
+    components = db.relationship(
+        'ProductComponent',
+        back_populates='product',
+        cascade='all, delete-orphan'
+    )
     
     def to_dict(self):
         return {
@@ -26,26 +40,34 @@ class Product(db.Model):
             "product_name": self.product_name,
             "description": self.description,
             "due_date": self.due_date.isoformat() if self.due_date else None,
-            "components": [component.to_dict() for component in self.components]
+            "components": [c.to_dict() for c in self.components]
         }
 
 class ProductComponent(db.Model):
     __tablename__ = 'product_components'
     
     id = Column(Integer, primary_key=True)
-    product_id = Column(Integer, ForeignKey('products.product_id'), nullable=False)
-    component_name = Column(String(255), nullable=False)  # NEW: a human-readable name for the component
-    required_material = Column(String(100), nullable=False)  # The material required for this component
-    file_path = Column(String(255), nullable=True)           # Optional: file path reference
+    product_id = Column(
+        Integer,
+        ForeignKey('products.product_id', ondelete='CASCADE'),
+        nullable=False
+    )
+    component_name = Column(String(255), nullable=False)
+    required_material = Column(String(100), nullable=False)
+    file_path = Column(String(255), nullable=True)
     
     product = db.relationship('Product', back_populates='components')
     
-    # New many-to-many relationship: a component is associated with multiple candidate gcodes.
     candidate_gcodes = db.relationship(
         'Gcode',
         secondary=component_gcode_association,
-        backref=db.backref('product_components', lazy='dynamic'),
-        lazy='dynamic'
+        backref=backref(
+            'product_components',
+            lazy='dynamic',
+            passive_deletes=True
+        ),
+        lazy='dynamic',
+        passive_deletes=True
     )
     
     def to_dict(self):
