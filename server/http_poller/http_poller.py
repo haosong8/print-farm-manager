@@ -1,5 +1,3 @@
-# sockets/http_poller/http_poller.py
-
 import threading
 import time
 import json
@@ -44,6 +42,8 @@ class HTTPPoller:
         self.callback = callback
         self.thread = None
         self.running = False
+        # Track consecutive polling errors
+        self.error_count = 0
 
     def build_url(self) -> str:
         """
@@ -82,13 +82,31 @@ class HTTPPoller:
 
             response.raise_for_status()  # Raises on 4xx/5xx
             data = response.json()
-            # print(f"[HTTPPoller][{self.printer.ip_address}] Poll result: {json.dumps(data)}")
+
+            # On successful poll, reset error counter
+            if self.error_count >= 10:
+                # Optionally, mark printer as online again after recovery
+                app = get_app_instance()
+                with app.app_context():
+                    Printer.query.filter_by(id=self.printer.id).update({"is_online": True})
+                    db.session.commit()
+                print(f"[HTTPPoller][{self.printer.ip_address}] Printer recovered and set online.")
+            self.error_count = 0
 
             if self.callback:
                 self.callback(self.printer.ip_address, data)
 
         except Exception as e:
             print(f"[HTTPPoller][{self.printer.ip_address}] Polling error: {e}")
+            self.error_count += 1
+
+            # After 10 consecutive polling errors, mark printer as offline
+            if self.error_count >= 10:
+                app = get_app_instance()
+                with app.app_context():
+                    Printer.query.filter_by(id=self.printer.id).update({"is_online": False})
+                    db.session.commit()
+                print(f"[HTTPPoller][{self.printer.ip_address}] Set printer offline after {self.error_count} consecutive errors.")
 
     def poll_loop(self):
         """Continuously poll until stopped."""
@@ -117,7 +135,6 @@ def update_printer_status_callback(printer_ip, data):
     Emits the data to all Socket.IO clients in the printer's room.
     """
     try:
-        # print(f"[HTTPPoller][{printer_ip}] Emitting update: {json.dumps(data)}")
         socketio.emit("printer_update", data, room=printer_ip)
     except Exception as e:
         print(f"[HTTPPoller][{printer_ip}] Error emitting update: {e}")
