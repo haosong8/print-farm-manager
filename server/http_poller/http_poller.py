@@ -107,7 +107,8 @@ class HTTPPoller:
                     Printer.query.filter_by(id=self.printer.id).update({"is_online": False})
                     db.session.commit()
                 print(f"[HTTPPoller][{self.printer.ip_address}] Set printer offline after {self.error_count} consecutive errors.")
-
+                self.stop()
+                
     def poll_loop(self):
         """Continuously poll until stopped."""
         while self.running:
